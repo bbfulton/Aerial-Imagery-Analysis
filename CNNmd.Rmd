@@ -1,0 +1,399 @@
+## Satellite Imagery Classification Phase 1
+
+#### Background 
+
+This project is a proof of concept for the Atlanta Regional Commission that demonstrates the capability of convolutional neural networks to accurately classify aerial imagery of the Atlanta area into one of twenty different land use classifications. This particular segment of the project shows a baseline level of accuracy to be expected with five different image classifications: High density residential, medium density residential, low density residential, forest, and commercial.  Additional model tuning and imagery analysis should be able to further increase overall accuracy.
+
+The imagery for this part of the project is from 2010.  The idea is to generate a robust CNN (Convolutional Neural Network) based on that imagery, and when new data becomes available, the model can be tweaked and improved with higher quality imaging technology.  
+
+#### Loading necessary packages
+
+```{r, results = "hide", message = FALSE}
+require(tidyverse)
+require(keras)
+require(caret)
+require(pROC)
+require(imager)
+require(sqldf)
+require(randomForest)
+```
+
+#### Moving the images to assigned folders
+
+```{r}
+set.seed(314159)
+filepath <- "F:\\LandPro_2010_Imagery\\fulton_2010_jpg"
+```
+```{r, results = "hide"}
+load("F:\\LandPro_2010_Imagery\\Preliminary Work\\02282019image.h5")
+model <- load_model_hdf5("F:\\LandPro_2010_Imagery\\Preliminary Work\\02082019cnn1.h5")
+```
+```{r, eval = FALSE}
+files <- list.files(path = filepath)
+cat111images <- files[grep(".*_111.jpg", files)]
+cat112images <- files[grep(".*_112.jpg", files)]
+cat113images <- files[grep(".*_113.jpg", files)]
+cat12images <- files[grep(".*_12.jpg", files)]
+cat40images <- files[grep(".*_40.jpg", files)]
+dir.create(paste0(filepath, "\\train", sep = ""))
+dir.create(paste0(filepath, "\\validation", sep = ""))
+dir.create(paste0(filepath, "\\test", sep = ""))
+dir.create(paste0(filepath, "\\train\\111", sep = ""))
+dir.create(paste0(filepath, "\\validation\\111", sep = ""))
+dir.create(paste0(filepath, "\\test\\111", sep = ""))
+dir.create(paste0(filepath, "\\train\\112", sep = ""))
+dir.create(paste0(filepath, "\\validation\\112", sep = ""))
+dir.create(paste0(filepath, "\\test\\112", sep = ""))
+dir.create(paste0(filepath, "\\train\\113", sep = ""))
+dir.create(paste0(filepath, "\\validation\\113", sep = ""))
+dir.create(paste0(filepath, "\\test\\113", sep = ""))
+dir.create(paste0(filepath, "\\train\\12", sep = ""))
+dir.create(paste0(filepath, "\\validation\\12", sep = ""))
+dir.create(paste0(filepath, "\\test\\12", sep = ""))
+dir.create(paste0(filepath, "\\train\\40", sep = ""))
+dir.create(paste0(filepath, "\\validation\\40", sep = ""))
+dir.create(paste0(filepath, "\\test\\40", sep = ""))
+```
+
+#### Notating which images will go into Training, Validation, and Test folders
+
+```{r, eval = FALSE}
+val111 <- sample(1:length(cat111images), round(0.3*length(cat111images)))
+test111 <- setdiff(sample(1:length(cat111images), round(0.3*length(cat111images))), val111)
+train111 <- setdiff(1:length(cat111images), union(val111, test111))
+val112 <- sample(1:length(cat112images), round(0.3*length(cat112images)))
+test112 <- setdiff(sample(1:length(cat112images), round(0.3*length(cat112images))), val112)
+train112 <- setdiff(1:length(cat112images), union(val112, test112))
+val113 <- sample(1:length(cat113images), round(0.3*length(cat113images)))
+test113 <- setdiff(sample(1:length(cat113images), round(0.3*length(cat113images))), val113)
+train113 <- setdiff(1:length(cat113images), union(val113, test113))
+val12 <- sample(1:length(cat12images), round(0.3*length(cat12images)))
+test12 <- setdiff(sample(1:length(cat12images), round(0.3*length(cat12images))), val12)
+train12 <- setdiff(1:length(cat12images), union(val12, test12))
+val40 <- sample(1:length(cat40images), round(0.3*length(cat40images)))
+test40 <- setdiff(sample(1:length(cat40images), round(0.3*length(cat40images))), val40)
+train40 <- setdiff(1:length(cat40images), union(val40, test40))
+```
+
+#### Copying images to their designated locations
+
+```{r, eval = FALSE}
+file.copy(file.path(filepath, cat111images[test111]), file.path(paste0(filepath, "\\test\\111\\", sep = "")))
+file.copy(file.path(filepath, cat111images[val111]), file.path(paste0(filepath, "\\validation\\111\\", sep = "")))
+file.copy(file.path(filepath, cat111images[train111]), file.path(paste0(filepath, "\\train\\111\\", sep = "")))
+file.copy(file.path(filepath, cat112images[test112]), file.path(paste0(filepath, "\\test\\112\\", sep = "")))
+file.copy(file.path(filepath, cat112images[val112]), file.path(paste0(filepath, "\\validation\\112\\", sep = "")))
+file.copy(file.path(filepath, cat112images[train112]), file.path(paste0(filepath, "\\train\\112\\", sep = "")))
+file.copy(file.path(filepath, cat113images[test113]), file.path(paste0(filepath, "\\test\\113\\", sep = "")))
+file.copy(file.path(filepath, cat113images[val113]), file.path(paste0(filepath, "\\validation\\113\\", sep = "")))
+file.copy(file.path(filepath, cat113images[train113]), file.path(paste0(filepath, "\\train\\113\\", sep = "")))
+file.copy(file.path(filepath, cat12images[test12]), file.path(paste0(filepath, "\\test\\12\\", sep = "")))
+file.copy(file.path(filepath, cat12images[val12]), file.path(paste0(filepath, "\\validation\\12\\", sep = "")))
+file.copy(file.path(filepath, cat12images[train12]), file.path(paste0(filepath, "\\train\\12\\", sep = "")))
+file.copy(file.path(filepath, cat40images[test40]), file.path(paste0(filepath, "\\test\\40\\", sep = "")))
+file.copy(file.path(filepath, cat40images[val40]), file.path(paste0(filepath, "\\validation\\40\\", sep = "")))
+file.copy(file.path(filepath, cat40images[train40]), file.path(paste0(filepath, "\\train\\40\\", sep = "")))
+```
+
+#### Designating file paths for Training and Validation images
+
+```{r, eval = FALSE}
+train_dir <- file.path(paste(filepath, "\\train", sep = ""))
+validation_dir <- file.path(paste(filepath, "\\validation", sep = ""))
+```
+
+#### Summing the total number of training images
+
+```{r, eval = FALSE}
+numtrainingfiles <- length(list.files(paste(filepath, "\\train\\111", sep = ""))) +
+                    length(list.files(paste(filepath, "\\train\\112", sep = ""))) +
+                    length(list.files(paste(filepath, "\\train\\113", sep = ""))) + 
+                    length(list.files(paste(filepath, "\\train\\12", sep = ""))) +
+                    length(list.files(paste(filepath, "\\train\\40", sep = "")))
+```
+
+#### Generating the CNN structure
+ 
+```{r, eval = FALSE}
+model <- keras_model_sequential() %>%
+        layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = "relu",
+                      input_shape = c(192, 192, 3)) %>%
+        layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+        layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+        layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+        layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+        layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+        layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+        layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+        layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+        layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+        layer_flatten() %>%
+        layer_dropout(rate = 0.5) %>%
+        layer_dense(units = 1024, activation = "relu") %>%
+        layer_dense(units = 5, activation = "softmax")
+```
+
+#### Compiling the Model
+
+Setting the loss metric, optimizer and learning rate of the CNN.
+
+```{r, eval = FALSE}
+model %>% compile(
+        loss = "categorical_crossentropy",
+        optimizer = optimizer_rmsprop(lr = 0.0001),
+        metrics = c("acc")
+)
+```
+
+#### Creating the generator for training images
+
+In order to capture patterns in images that may not be normalized, the image generator will take the image samples and perform a number of basic manipulations on them before training the network to them.  These manipulations include image rotation, horizontal flips, vertical flips, and zooms.  The reason behind this is that in aerial imagery, patterns are not often found in the same orientation as photographed.  For example, the letter "P" is only recognizable as such when it is written in a certain way.  When someone flips the letter "P" vertically, it is no longer a "P".  Patterns that are easily identified by humans for aerial imagery purposes aren't subject to that constraint.  A large industrial complex is still a large industrial complex no matter how you orient it.  The training generator helps the network to "learn" this. 
+
+```{r, eval = FALSE}
+train_datagen <- image_data_generator(
+        rescale = 1/255,
+        horizontal_flip = TRUE,
+        vertical_flip = TRUE,
+        zoom_range = .2,
+        rotation_range = 15,
+        fill_mode = "reflect"
+)
+```
+
+#### Creating generator for validation images
+
+There is no need to perform image manipulation on the validation images.
+
+```{r, eval = FALSE}
+validation_datagen <- image_data_generator(rescale = 1/255)
+```
+
+##### Setting batch size for the network
+
+The CNN will process images in groups of 15 in order to learn patterns in identification.
+
+```{r, eval = FALSE}
+batchsize <- 15
+```
+
+#### Generating batches of 192x192 images out of the training and validation generators
+
+```{r, , eval = FALSE}
+train_generator <- flow_images_from_directory(
+        train_dir,
+        train_datagen,
+        target_size = c(192, 192),
+        batch_size = batchsize,
+        class_mode = "categorical"
+)
+
+validation_generator <- flow_images_from_directory(
+        validation_dir,
+        validation_datagen,
+        target_size = c(192, 192),
+        batch_size = batchsize,
+        class_mode = "categorical"
+)
+
+batch <- generator_next(train_generator)
+```
+
+#### Training the model
+
+Number of epochs has been set to 40 and the number of steps is set to the total number of training images divided by the batch size (both set above).
+
+```{r, results = "hide", eval = FALSE}
+history <- model %>% fit_generator(
+        train_generator,
+        steps_per_epoch = round(numtrainingfiles/batchsize),
+        epochs = 40,
+        validation_data = validation_generator,
+        validation_steps = round(numtrainingfiles/batchsize)
+)
+```
+
+Note the training accuracy of 80% and the validation accuracy of 78%
+
+```{r}
+history
+```
+
+#### Prepping test images
+
+```{r, eval = FALSE}
+test_dir <- "F:\\LandPro_2010_Imagery\\fulton_2010_jpg\\test"
+test_datagen <- image_data_generator(
+        rescale = 1/255
+)
+
+test_generator <- flow_images_from_directory(
+        test_dir,
+        test_datagen,
+        color_mode = "rgb",
+        target_size = c(192,192),
+        batch_size = 16,
+        class_mode = "categorical",
+        shuffle = FALSE
+)
+```
+
+#### Evaluating the model on the test images
+
+```{r, eval = FALSE}
+model %>% evaluate_generator(test_generator, steps = 340)
+```
+
+#### And predicting the class probabilities of the test images
+
+This outputs 5 separate values, each one equal to the probability that an image belongs to each of the 5 separate land use categories as calculated by the model.
+
+```{r, results = "hide", eval = FALSE}
+preds <- predict_generator(model,
+                           test_generator,
+                           steps = 340)
+```
+                           
+#### Creating dataframe of class predictions
+
+```{r, eval = FALSE}
+predictions <- data.frame(test_generator$filenames)
+predictions <- cbind(predictions, preds)
+names(predictions) <- c("filename", "cat111prob", "cat112prob", "cat113prob", "cat12prob", "cat40prob")
+predictions$classprediction <- sapply(1:nrow(predictions), function(x) min(which(predictions[x,2:6] == max(predictions[x, 2:6]))))
+predictions$classprediction <- case_when(predictions$classprediction == 1 ~ "111", 
+                                         predictions$classprediction == 2 ~ "112",
+                                         predictions$classprediction == 3 ~ "113",
+                                         predictions$classprediction == 4 ~ "12",
+                                         predictions$classprediction == 5 ~ "40"
+                                         )
+```
+
+#### And appending the actual classifications 
+
+```{r, eval = FALSE}
+predictions$classactual <- case_when(grepl("111", predictions$filename) == TRUE ~ "111",
+                                     grepl("112", predictions$filename) == TRUE ~ "112",
+                                     grepl("113", predictions$filename) == TRUE ~ "113",
+                                     grepl("_12", predictions$filename) == TRUE ~ "12",
+                                     grepl("_40", predictions$filename) == TRUE ~ "40"
+                                     )
+predictions$classactual <- as.factor(predictions$classactual)
+predictions$classprediction <- as.factor(predictions$classprediction)
+```
+
+#### Confusion matrix showing prediction results
+
+```{r, warning = FALSE}
+confusionMatrix(predictions$classprediction, predictions$classactual)
+```
+
+#### Visualizing a sample of incorrect predictions
+
+The confusion matrix shows that the model is generally sound when it comes to distinguishing between various levels of residenial densities (classes 111, 112, and 113).  There are far fewer gross errors where the model incorrectly identified a low-density residential area as a high-density area (or vice versa) as there are misclassfications between more closely related groups.  
+
+Note the table below which shows the tally of incorrect classifications for each category.  The network generates far fewer misclassifications for certain categories (such as "forest", category 40) than others.  This is to be expected, as residential densities aren't binary designations.  It is promising to see very few gross errors such as "high density residential" (category 113) being commonly mistaken for "low density residential" (category 112).  
+
+```{r}
+wrongPredictions <- predictions[predictions$classprediction != predictions$classactual,]
+table(wrongPredictions$classactual, wrongPredictions$classprediction)
+```
+
+Of course, it's still very important to look at the mistaken images to see if the model's incorrect predictions still make sense.
+
+```{r}
+wrongPredictions <- wrongPredictions[sample(1:nrow(wrongPredictions), 25),]
+
+plotImage <- function(imagenum) {
+        myImage <- load.image(paste(test_dir, wrongPredictions$filename[imagenum], sep = "\\"))
+        myImage <- resize(myImage, 500, 500)
+        plot(myImage, axes = FALSE)
+        legend(0.5, 0, bty = "n", text.font = 2, text.col = "white",
+               legend = c(paste("Predicted class:  ", wrongPredictions$classprediction[imagenum], sep = ""),
+                          paste("Actual class:  ", wrongPredictions$classactual[imagenum], sep = ""),
+                          paste("Probability 111:  ", round(wrongPredictions$cat111prob[imagenum], 3), sep = ""),
+                          paste("Probability 112:  ", round(wrongPredictions$cat112prob[imagenum], 3), sep = ""),
+                          paste("Probability 113:  ", round(wrongPredictions$cat113prob[imagenum], 3), sep = ""),
+                          paste("Probability 12:  ", round(wrongPredictions$cat12prob[imagenum], 3), sep = ""),
+                          paste("Probability 40:  ", round(wrongPredictions$cat40prob[imagenum], 3), sep = ""))
+        )
+}
+```
+```{r, results = "hide" ,fig.keep = "all"}
+sapply(1:25, plotImage)
+```
+
+####  Northing and Easting data
+
+Each aerial image also including Northing and Easting coordinates.  We will use those coordinates along with the class probabilities from the CNN above to see if we can further improve the classification accuracy.
+
+The rationale behind including this step is twofold:  
+
+1)  Due to the way in which land is zoned, it is uncommon to find certain combinations of classifications adjacent to one another.  For example, due to regulations, it's unlikely that one plot of land will be zoned for industrial use and the adjacent lot for high-density residential.  Adding coordinate data will hopefully pick up on that trend.  
+
+2)  The definitions of low-density, medium-density, and high-density residential are not based solely on one image.  These images are not classified in a vacuum and should be interpreted to be part of a larger grouping of images of an entire neighborhood.  As such, it is entirely possible that an image can look like a low-residential image whereas in actuality it is classified as high-residential since it is simply on the edge of a dense neighborhood.  On a single image basis, it is very unlikely that a CNN could ever pick up on that.  Adding coordinate data presumably will help it do so.
+
+#### Extracting NE data
+
+```{r}
+path <- "F:\\LandPro_2010_Imagery\\"
+tfwFiles <- list.files(path, pattern = "tfw", recursive = TRUE)
+tfwFiles <- paste(path, tfwFiles, sep = "")
+extract <- function(tfwFile) {
+        t <- readLines(tfwFile)
+        t <- t[c(5,6)]
+        name <- gsub(".*[[:digit:]]/", "", tfwFile)
+        name <- gsub("tfw", "jpg", name)
+        t <- c(t, name)
+        code <- str_match(tfwFile, "[[:digit:]]+.tfw")
+        code <- gsub("\\.tfw", "", code)
+        code <- gsub(".*_", "", code)
+        t <- c(t, code)
+        return(t)
+}
+NEMatrix <- sapply(1:length(tfwFiles), function(x) extract(tfwFiles[x]))
+NEMatrix <- as.data.frame(t(NEMatrix))
+names(NEMatrix) <- c("Northing", "Easting", "ImageName", "ImageCat")
+options(digits = 18)
+NEMatrix$Northing <- as.numeric(as.character(NEMatrix$Northing))
+NEMatrix$Easting <- as.numeric(as.character(NEMatrix$Easting))
+```
+
+#### Merging NE coordinates with probabilities
+        
+```{r}
+predictions$filename <- gsub("[[:digit:]]+\\\\", "", predictions$filename)
+pNE <- sqldf("SELECT p.filename, p.cat111prob, p.cat112prob, p.cat113prob, p.cat12prob, p.cat40prob, ne.Northing, ne.Easting, p.classprediction, p.classactual
+              FROM predictions p, NEMatrix ne
+              WHERE p.filename = ne.ImageName")
+pNE <- pNE[,c(2:8,10)]
+```
+
+#### Training RandomForest model with class probabilities and coordinates
+
+```{r}
+intrain <- createDataPartition(pNE$classactual, p = 0.7, list = FALSE)
+trainSet <- pNE[intrain,]
+testSet <- pNE[-intrain,]
+nerfModel <- randomForest(classactual~., 
+                          data = trainSet,
+                          nTree = 700,
+                          mtry = 3,
+                          importance = TRUE)
+```
+
+#### Examining predictions and accuracy
+
+With coordinate data, the overall accuracy improved by approximately 8%.  That might not sound like much, but introducting Northing/Easting data reduces the number of misclassifications by upwards of 40%.
+
+```{r}                          
+nerfPred <- predict(nerfModel, testSet)
+confusionMatrix(nerfPred, testSet$classactual)
+```
+
+#### Final notes
+
+Achieving maximum accuracy is probably not the end goal for this project.  Given the number of arbitrary classification rules and various government regulations that are nearly impossible to quantify or qualify in a model such as this, it's unlikely that a CNN based model would ever entirely replace an experienced employee in classifying these images.  However, it is likely possible to eliminate a large number of images that the model is certain of and passing only those that it is unsure about on to a human eye for final classification.  Even if we can only eliminate 50% of images that the model is very confident with, that still corresponds to 1000 man hours saved for the agency.  
+
+
+
+
