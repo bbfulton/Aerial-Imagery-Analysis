@@ -1,10 +1,12 @@
-## Satellite Imagery Classification Phase 1
+## Aerial Imagery Classification Phase 1
 
 #### Background 
 
 This project is a proof of concept for the Atlanta Regional Commission that demonstrates the capability of convolutional neural networks to accurately classify aerial imagery of the Atlanta area into one of twenty different land use classifications. This particular segment of the project shows a baseline level of accuracy to be expected with five different image classifications: High density residential, medium density residential, low density residential, forest, and commercial.  Additional model tuning and imagery analysis should be able to further increase overall accuracy.
 
 The imagery for this part of the project is from 2010.  The idea is to generate a robust CNN (Convolutional Neural Network) based on that imagery, and when new data becomes available, the model can be tweaked and improved with higher quality imaging technology.  
+
+###__Image Organization and Software Package Initialization__
 
 #### Loading necessary packages
 
@@ -18,7 +20,9 @@ require(sqldf)
 require(randomForest)
 ```
 
-#### Moving the images to assigned folders
+#### Creating folders for images to be separated into
+
+The neural network structure requires that images be separated into folders based on their classification.
 
 ```{r}
 set.seed(314159)
@@ -95,14 +99,16 @@ file.copy(file.path(filepath, cat40images[val40]), file.path(paste0(filepath, "\
 file.copy(file.path(filepath, cat40images[train40]), file.path(paste0(filepath, "\\train\\40\\", sep = "")))
 ```
 
-#### Designating file paths for Training and Validation images
+#### Setting values for use in the CNN
+
+Designating file paths for Training and Validation images for use in the creation of the neural network below.
 
 ```{r, eval = FALSE}
 train_dir <- file.path(paste(filepath, "\\train", sep = ""))
 validation_dir <- file.path(paste(filepath, "\\validation", sep = ""))
 ```
 
-#### Summing the total number of training images
+CNNs learn patterns by taking a one sample of images at a time (referred to as a batch) and learning patterns from those images.  It then moves on to the next batch of images and learns patterns from that sample, and so on until it completes a set number of learning cycles.  The batch size will be defined below, but at this point, it is useful to determine the total number of images available. That helps to determine the batch size and the number of cycles needed to accurately process the images.
 
 ```{r, eval = FALSE}
 numtrainingfiles <- length(list.files(paste(filepath, "\\train\\111", sep = ""))) +
@@ -112,7 +118,11 @@ numtrainingfiles <- length(list.files(paste(filepath, "\\train\\111", sep = ""))
                     length(list.files(paste(filepath, "\\train\\40", sep = "")))
 ```
 
-#### Generating the CNN structure
+###__Creating the Neural Network__
+
+#### Generating the Convoluted Neural Network structure
+
+CNNs take vectorized image pixel values (3 in this case, that correspond to the 3 RGB values) and perform basic arithmetic operations on them to generate a "stack" of matrices that contain average pixel values for small pieces of each image at a time.  It then combines these stacks into new smaller layers, and repeats the process until it gets to a point where there is only a 1-dimensional array of sums and averages that will then get filtered down into a series of probabilities that correspond to the model's interpretation of what category each image belongs to.  
  
 ```{r, eval = FALSE}
 model <- keras_model_sequential() %>%
@@ -136,6 +146,8 @@ model <- keras_model_sequential() %>%
 #### Compiling the Model
 
 Setting the loss metric, optimizer and learning rate of the CNN.
+
+Ultimately, we want the model's effectiveness to be determined by how accurate it is.  While this might seem obvious, this is something that needs to be specified for the network to work with.  As noted above, the network will learn what it can from small image samples and then move on to the next group.  However, with data as complex as imagery, we don't want the model to spend too much or too little time learning on each group of images.  If it tries to learn too slowly, then the amount of processing time it takes to over thousands of pixels in thousands of images becomes prohibitively large.  If it tries to learn too quickly, then it likely will not pick up on all of the nuances help distinguish one type of image from another and accuracy will suffer.  We have to manually set the learning rate so that processing time and accuracy are balanced.  
 
 ```{r, eval = FALSE}
 model %>% compile(
@@ -178,6 +190,8 @@ batchsize <- 15
 
 #### Generating batches of 192x192 images out of the training and validation generators
 
+Each pixel for every image has 3 values, and each image can have hundreds of thousands or millions of pixels in them.  Because of the mathematics involved, CNN processing time increases exponentially with the number of input values and having millions of pixel values  is simply not feasible to work with from a computational standpoint.  As such, it is very important to scale the images down in size (in this case, to 192x192) so that the network can train itself in a reasonable amount of time.  Of course, it's harder for humans to distinguish features in smaller images and the same is true of CNNs when it comes to identifying patterns in images.  Again, there's a balance to be struck between prohibitively large amounts of processing time and overall accuracy.
+
 ```{r, , eval = FALSE}
 train_generator <- flow_images_from_directory(
         train_dir,
@@ -200,7 +214,7 @@ batch <- generator_next(train_generator)
 
 #### Training the model
 
-Number of epochs has been set to 40 and the number of steps is set to the total number of training images divided by the batch size (both set above).
+Number of epochs has been set to 40 and the number of steps is set to the total number of training images divided by the batch size (both set above).  Prior testing has indicated that accuracy is not noticeably improved by increasing the number of epochs much past 40.
 
 ```{r, results = "hide", eval = FALSE}
 history <- model %>% fit_generator(
@@ -212,7 +226,7 @@ history <- model %>% fit_generator(
 )
 ```
 
-Note the training accuracy of 80% and the validation accuracy of 78%
+Note the training accuracy of 80% and the validation accuracy of 78%, indicating good model generalization and a lack of undesirable overfitting.
 
 ```{r}
 history
@@ -236,6 +250,8 @@ test_generator <- flow_images_from_directory(
         shuffle = FALSE
 )
 ```
+
+###__Determining Neural Network Accuracy__
 
 #### Evaluating the model on the test images
 
@@ -268,7 +284,7 @@ predictions$classprediction <- case_when(predictions$classprediction == 1 ~ "111
                                          )
 ```
 
-#### And appending the actual classifications 
+#### Appending the actual classifications to the table of predictions
 
 ```{r, eval = FALSE}
 predictions$classactual <- case_when(grepl("111", predictions$filename) == TRUE ~ "111",
@@ -298,7 +314,15 @@ wrongPredictions <- predictions[predictions$classprediction != predictions$class
 table(wrongPredictions$classactual, wrongPredictions$classprediction)
 ```
 
-Of course, it's still very important to look at the mistaken images to see if the model's incorrect predictions still make sense.
+Of course, it's still very important to look at the mistaken images to see if the model's incorrect predictions still make sense to the human eye.
+
+For reference:
+
+Category 111:  Low Density Residential
+Category 112:  Medium Density Residential
+Category 113:  High Density Residential
+Category 12:  Industrial
+Category 40:  Forest
 
 ```{r}
 wrongPredictions <- wrongPredictions[sample(1:nrow(wrongPredictions), 25),]
@@ -321,6 +345,8 @@ plotImage <- function(imagenum) {
 ```{r, results = "hide" ,fig.keep = "all"}
 sapply(1:25, plotImage)
 ```
+
+###__Creating New Model That Incorporates Neural Network Results with Northing/Easting Coordinates__
 
 ####  Northing and Easting data
 
@@ -380,6 +406,8 @@ nerfModel <- randomForest(classactual~.,
                           mtry = 3,
                           importance = TRUE)
 ```
+
+###__Final Results__
 
 #### Examining predictions and accuracy
 
